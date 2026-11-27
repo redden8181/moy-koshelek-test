@@ -1,7 +1,7 @@
 # Мой кошелёк — тестовая площадка
 
-Здесь проверяем новый дизайн кошелька для iPhone 15 Pro и iPhone 17 Pro.
+[Открыть тестовое приложение](https://redden8181.github.io/moy-koshelek-test/)
 
-Согласованный макет главной в светлой и тёмной темах. Все суммы и операции на макете вымышлены.
+GitHub Actions проверяет расчёты и публикует `dist/` в GitHub Pages при push в `main`. Тестовые записи хранятся отдельно от рабочих.
 
-![Макет главной](design/wallet-lime-concept.png)
+[Макет редизайна для iPhone 15 Pro и iPhone 17 Pro](design/wallet-lime-concept.png)

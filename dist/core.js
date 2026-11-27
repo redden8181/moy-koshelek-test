@@ -1,0 +1,75 @@
+export const uid=()=>crypto.randomUUID();
+export const day=(offset=0)=>{const d=new Date();d.setDate(d.getDate()+offset);return localDate(d)};
+export const localDate=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+export const rub=n=>new Intl.NumberFormat('ru-RU',{style:'currency',currency:'RUB',maximumFractionDigits:n%100?2:0}).format(n/100);
+export const parse=s=>{s=String(s).trim().replace(/\s/g,'').replace(',','.');if(!/^\d+(\.\d{1,2})?$/.test(s))return null;const n=Math.round(Number(s)*100);return n>0&&n<=100000000000?n:null};
+export const sign=kind=>['income','borrowed','returned'].includes(kind)?1:-1;
+export const balance=s=>s.opening+s.entries.reduce((a,e)=>a+sign(e.kind)*e.amount,0);
+export const remaining=(s,id)=>s.entries.filter(e=>e.debtId===id).reduce((a,e)=>a+(['lent','borrowed'].includes(e.kind)?e.amount:-e.amount),0);
+export const planned=s=>s.plans.filter(p=>!p.paid).reduce((a,p)=>a+p.amount,0);
+export const total=(s,kind)=>s.entries.filter(e=>e.kind===kind).reduce((a,e)=>a+e.amount,0);
+export const daysUntil=date=>Math.round((Date.parse(date+'T12:00:00')-Date.parse(day()+'T12:00:00'))/86400000);
+export const urgency=date=>daysUntil(date)<=2?'red':daysUntil(date)<=5?'orange':'green';
+export const isReminder=p=>!p.paid&&(!p.monthly||daysUntil(p.date)<=10);
+export function nextMonth(date,anchor){const [y,m]=date.split('-').map(Number);const last=new Date(y,m+1,0).getDate();return localDate(new Date(y,m,Math.min(anchor,last)))}
+export function demo(){const debtId=uid();const entry=(amount,kind,category,note,offset,extra={})=>({id:uid(),amount,kind,category,note,date:day(offset),created:Date.now()+offset,...extra});return {version:1,opening:300000,categories:[['🥑','Продукты',false],['☕','Кофе',false],['🚙','Машина',false],['🏡','Дом',false],['💼','Подработка',true],['💰','Зарплата',true]].map(([emoji,name,income])=>({id:uid(),emoji,name,income})),entries:[entry(500000,'income','💼 Подработка','Небольшой проект',-4),entry(54300,'expense','🥑 Продукты','Покупки домой',-3),entry(100000,'lent','🤝 Алексей','До конца месяца',-2,{debtId}),entry(40000,'returned','🤝 Алексей','Первый возврат',-1,{debtId}),entry(22000,'expense','☕ Кофе','По дороге домой',0)],debts:[{id:debtId,person:'Алексей',lent:true}],plans:[{id:uid(),title:'Оплата интернета',amount:70000,date:day(7),monthly:true,anchor:Number(day(7).slice(-2)),category:'🏡 Дом',note:'Домашний интернет',paid:false},{id:uid(),title:'Новые колёса',amount:300000,date:day(25),monthly:false,anchor:Number(day(25).slice(-2)),category:'🚙 Машина',note:'Подготовиться к сезону',paid:false}]}}
+export function putEntry(s,entry){if(!Number.isSafeInteger(entry.amount)||entry.amount<=0)throw Error('Проверьте сумму');const next=s.entries.filter(e=>e.id!==entry.id).concat(entry);if(entry.debtId){const test={...s,entries:next};if(remaining(test,entry.debtId)<0)throw Error('Возврат превышает сумму долга')}s.entries=next}
+export function removeEntry(s,id){const entry=s.entries.find(e=>e.id===id);const next=s.entries.filter(e=>e.id!==id);if(entry?.debtId&&remaining({...s,entries:next},entry.debtId)<0)throw Error('Сначала измените или удалите возвраты этого долга');if(entry?.planId){const plan=s.plans.find(p=>p.id===entry.planId);if(plan&&entry.planDate){plan.date=entry.planDate;plan.anchor=entry.planAnchor;plan.paid=false}}s.entries=next}
+export function payPlan(s,id,amount){const p=s.plans.find(p=>p.id===id);if(!p||p.paid)throw Error('Этот план уже оплачен');if(p.monthly&&!isReminder(p))throw Error('Этот период уже оплачен. Напомним за 10 дней до следующего платежа.');putEntry(s,{id:uid(),amount,kind:'expense',category:p.category||'📅 Платежи',note:p.title,date:day(),created:Date.now(),planId:p.id,planDate:p.date,planAnchor:p.anchor});if(p.monthly)p.date=nextMonth(p.date,p.anchor);else p.paid=true}
+
+// Reports are calculated from the ledger; carryover is never an income entry.
+export const monthKey=date=>date.slice(0,7);
+export const currentMonth=()=>monthKey(day());
+export function monthlyReport(s,month){
+ const entries=s.entries.filter(e=>monthKey(e.date)===month).sort((a,b)=>b.date.localeCompare(a.date)||(b.created||0)-(a.created||0));
+ const opening=s.opening+s.entries.filter(e=>monthKey(e.date)<month).reduce((n,e)=>n+sign(e.kind)*e.amount,0);
+ const income=entries.filter(e=>e.kind==='income').reduce((n,e)=>n+e.amount,0);
+ const expense=entries.filter(e=>e.kind==='expense').reduce((n,e)=>n+e.amount,0);
+ const debtIn=entries.filter(e=>['borrowed','returned'].includes(e.kind)).reduce((n,e)=>n+e.amount,0);
+ const debtOut=entries.filter(e=>['lent','repaid'].includes(e.kind)).reduce((n,e)=>n+e.amount,0);
+ return {month,entries,opening,income,expense,debtIn,debtOut,closing:opening+income-expense+debtIn-debtOut};
+}
+export function reportMonths(s){
+ const months=[currentMonth(),s.reportStart||currentMonth(),...s.entries.map(e=>monthKey(e.date))].sort();
+ const first=months[0],last=months.at(-1),result=[];let [y,m]=first.split('-').map(Number);
+ while(`${y}-${String(m).padStart(2,'0')}`<=last){result.push(`${y}-${String(m).padStart(2,'0')}`);if(++m===13){y++;m=1}}
+ return result.reverse();
+}
+export function searchEntries(s,query='',type='all',month=''){
+ const normalize=text=>String(text||'').toLocaleLowerCase('ru').replace(/ё/g,'е');
+ const words=normalize(query).trim().split(/\s+/).filter(Boolean);
+ return s.entries.filter(e=>!month||monthKey(e.date)===month).filter(e=>type==='all'||(type==='debt'?['lent','borrowed','returned','repaid'].includes(e.kind):e.kind===type)).filter(e=>{
+ const person=s.debts.find(d=>d.id===e.debtId)?.person||'';
+ const text=normalize([e.category,e.note,e.date,person].join(' '));return words.every(w=>text.includes(w));
+ }).sort((a,b)=>b.date.localeCompare(a.date)||(b.created||0)-(a.created||0));
+}
+
+export function debtSummary(s,id){
+ const entries=s.entries.filter(e=>e.debtId===id);
+ const issued=entries.filter(e=>['lent','borrowed'].includes(e.kind)).sort((a,b)=>a.date.localeCompare(b.date)||(a.created||0)-(b.created||0));
+ const repayments=entries.filter(e=>['returned','repaid'].includes(e.kind)).sort((a,b)=>a.date.localeCompare(b.date)||(a.created||0)-(b.created||0));
+ const principal=issued.reduce((sum,e)=>sum+e.amount,0),returned=repayments.reduce((sum,e)=>sum+e.amount,0);
+ return {principal,returned,remaining:principal-returned,date:issued[0]?.date||entries[0]?.date||'',note:issued[0]?.note||'',closedDate:principal>0&&principal===returned?repayments.at(-1)?.date||'':'',entries,issued};
+}
+export function editDebt(s,id,values){
+ const debt=s.debts.find(d=>d.id===id);if(!debt)throw Error('Долг не найден');
+ const person=String(values.person||'').trim();if(!person)throw Error('Укажите имя');
+ if(!Number.isSafeInteger(values.amount)||values.amount<=0)throw Error('Проверьте сумму долга');
+ const summary=debtSummary(s,id);
+ if(values.amount<summary.returned)throw Error('Сумма долга не может быть меньше уже возвращённой суммы');
+ const first=summary.issued[0],otherPrincipal=summary.principal-(first?.amount||0),firstAmount=values.amount-otherPrincipal;
+ if(firstAmount<=0)throw Error('Сумма меньше дополнительных выдач. Измените отдельные операции этого долга');
+ const entries=s.entries.map(e=>{
+  if(e.debtId!==id)return e;
+  const principal=['lent','borrowed'].includes(e.kind);
+  const edited={...e,category:'🤝 '+person,kind:principal?(values.lent?'lent':'borrowed'):(values.lent?'returned':'repaid')};
+  if(e.id===first?.id){edited.amount=firstAmount;edited.date=values.date;edited.note=values.note||''}
+  return edited;
+ });
+ if(!first)entries.push({id:uid(),amount:values.amount,kind:values.lent?'lent':'borrowed',date:values.date,category:'🤝 '+person,note:values.note||'',debtId:id,created:Date.now()});
+ s.entries=entries;s.debts=s.debts.map(d=>d.id===id?{...d,person,lent:values.lent}:d);
+}
+export function deleteDebt(s,id){
+ s.entries=s.entries.filter(e=>e.debtId!==id);
+ s.debts=s.debts.filter(d=>d.id!==id);
+}
