@@ -34,3 +34,18 @@ test('PDF column choices never omit a row with a missing or misaligned amount', 
     cell('07.01.2027',45,72,65),cell('1530',230,72)]];
   assert.deepEqual(scheduleFromPdfPages(rows).columns.map(c=>c.number),[2]);
 });
+
+test('PDF import finds the total across staggered header lines and combines distinct payments on one date', () => {
+  const page = [
+    cell('Сумма платежа в',320,120,70),
+    cell('Общая сумма',160,112,54),
+    cell('Код валюты',110,104,38),cell('погашение',329,104,47),
+    cell('погашения*',165,96,44),
+    cell('основного долга',320,89,70),
+    cell('1',12,72,8),cell('07.12.2026',45,72,60),
+    cell('32,919.39',166,72),cell('22,000.00',325,72),cell('10,919.39',414,72),
+    cell('2',12,52,8),cell('07.12.2026',45,52,60),
+    cell('7,000.01',166,52),cell('7,000.01',325,52),cell('0.00',414,52),
+  ];
+  assert.deepEqual(scheduleFromPdfPages([page,page]).schedule,[{date:'2026-12-07',amount:3991940}]);
+});

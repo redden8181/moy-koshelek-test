@@ -278,3 +278,8 @@
 .entry-amount-value.is-empty { color: var(--muted); }
 button.entry-amount-display:active { background: var(--soft); }
 [data-theme="dark"] button.entry-amount-display:active { background: var(--wallet-surface); }
+
+@media (max-width: 650px) {
+  #loan-import-form .form-buttons { position: static; }
+  #loan-import-form [name="title"] { scroll-margin-block: 16px; }
+}

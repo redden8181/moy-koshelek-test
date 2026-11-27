@@ -104,8 +104,8 @@ function loans(){
  <div class="loan-schedule">${schedule.map(p=>p.paid?`<div class="loan-preview-row"><span>${formatDate(p.date,true)} · Оплачено</span><strong>${rub(p.amount)}</strong></div>`:preview(p)).join('')}</div></section>`).join('')||
  '<div class="empty">Кредитов пока нет</div>'}`;
 }
-function loanPaymentPreview(schedule){
- return `<p class="help">Платежей: ${schedule.length}. Сверьте даты и суммы с графиком банка.</p>
+function loanPaymentPreview(schedule,skipped=0){
+ return `<p class="help">Платежей: ${schedule.length}. Сверьте даты и суммы с графиком банка.</p>${skipped?`<p class="help">Даты до сегодня пропущены: ${skipped}.</p>`:''}
  <div class="loan-schedule">${schedule.map(p=>`<div class="loan-preview-row"><time datetime="${p.date}">${formatDate(p.date,true)}</time><strong>${rub(p.amount)}</strong></div>`).join('')}</div>`;
 }
 async function previewLoanImport(input){
@@ -117,7 +117,7 @@ async function previewLoanImport(input){
   let result;
   if(isPdf){
    toast('Читаю график из PDF…');
-   const {readPdfSchedule}=await import('./loan-pdf.js?v=18');
+   const {readPdfSchedule}=await import('./loan-pdf.js?v=19');
    result=await readPdfSchedule(new Uint8Array(bytes));
   }else{
    let text;
@@ -125,17 +125,32 @@ async function previewLoanImport(input){
    result={schedule:parseLoanSchedule(text)};
   }
   if(!input.isConnected && route!=='loans')return;
+  if(isPdf){
+   const cutoff=day();
+   const upcoming=payments=>payments.filter(p=>p.date>=cutoff);
+   if(result.schedule){
+    const schedule=upcoming(result.schedule);
+    result={schedule,skipped:result.schedule.length-schedule.length};
+   }else{
+    result={columns:result.columns.map(column=>{
+     const schedule=upcoming(column.schedule);
+     return {...column,schedule,skipped:column.schedule.length-schedule.length};
+    }).filter(column=>column.schedule.length)};
+   }
+   if(!result.schedule?.length&&!result.columns?.length)throw Error('В PDF нет платежей на сегодня или более поздние даты.');
+  }
   loanImport=result;
-  const {schedule,columns}=result;
+  const {schedule,columns,skipped}=result;
   const picker=columns?`<p class="help">В строке PDF несколько сумм. Выберите колонку с полным платежом по графику банка.</p>
    <label class="field">Колонка платежа<select id="loan-amount-column" required>
     <option value="">Выберите колонку</option>
     ${columns.map(({number,schedule},i)=>`<option value="${i}">Колонка ${number} · ${rub(schedule[0].amount)}</option>`).join('')}
    </select></label>`:'';
-  open('Проверить график',`<form id="loan-import-form"><p class="help">${esc(file.name)}</p>${picker}
-   ${field('title','Название кредита','','text','maxlength="100" required')}
-   <div id="loan-payment-preview">${schedule?loanPaymentPreview(schedule):''}</div>
-   ${footer('Добавить платежи')}</form>`);
+  open('Проверить график',`<form id="loan-import-form">
+   ${field('title','Название кредита','','text','maxlength="100" required autocomplete="off" enterkeyhint="done"')}
+   <p class="help">${esc(file.name)}</p>${picker}
+   <div id="loan-payment-preview">${schedule?loanPaymentPreview(schedule,skipped):''}</div>
+   ${footer('Добавить платежи')}</form>`,{focusHeading:true});
   $('#loan-import-form button[type=submit]').disabled=!schedule;
  }catch(error){toast(error.message)}
  input.value='';
@@ -156,8 +171,31 @@ function open(title,html,{focusHeading=false}={}){
  if(!modal.open)modal.showModal();
  if(focusHeading)$('#sheet-title').focus({preventScroll:true});
 }
-function fitSheet(){const v=window.visualViewport;document.documentElement.style.setProperty('--sheet-height',(v?.height||innerHeight)+'px');document.documentElement.style.setProperty('--sheet-bottom',Math.max(0,innerHeight-(v?.height||innerHeight)-(v?.offsetTop||0))+'px')}
-fitSheet();window.visualViewport?.addEventListener('resize',fitSheet);window.visualViewport?.addEventListener('scroll',fitSheet);window.addEventListener('resize',fitSheet);
+function keepLoanTitleVisible(){
+ const input=document.activeElement;
+ if(!input?.matches('#loan-import-form [name=title]')||innerWidth>650)return;
+ requestAnimationFrame(()=>{
+  if(document.activeElement!==input)return;
+  const rect=input.getBoundingClientRect();
+  const sheet=modal.getBoundingClientRect();
+  const viewport=window.visualViewport;
+  const top=Math.max(sheet.top,viewport?.offsetTop||0)+12;
+  const bottom=Math.min(sheet.bottom,viewport?viewport.offsetTop+viewport.height:innerHeight)-16;
+  if(rect.bottom>bottom)modal.scrollTop+=rect.bottom-bottom;
+  else if(rect.top<top)modal.scrollTop-=top-rect.top;
+ });
+}
+function fitSheet(){
+ const v=window.visualViewport;
+ document.documentElement.style.setProperty('--sheet-height',(v?.height||innerHeight)+'px');
+ document.documentElement.style.setProperty('--sheet-bottom',Math.max(0,innerHeight-(v?.height||innerHeight)-(v?.offsetTop||0))+'px');
+ keepLoanTitleVisible();
+}
+fitSheet();
+window.visualViewport?.addEventListener('resize',fitSheet);
+window.visualViewport?.addEventListener('scroll',fitSheet);
+window.addEventListener('resize',fitSheet);
+modal.addEventListener('focusin',keepLoanTitleVisible);
 let sheetDrag=null;
 modal.addEventListener('pointerdown',e=>{if(!e.target.closest('.sheet-handle-area')||innerWidth>650)return;sheetDrag={y:e.clientY,id:e.pointerId};modal.setPointerCapture(e.pointerId)});
 modal.addEventListener('pointermove',e=>{if(!sheetDrag||sheetDrag.id!==e.pointerId)return;const dy=Math.max(0,e.clientY-sheetDrag.y);modal.style.transform=`translateY(${dy}px)`});
@@ -251,8 +289,9 @@ document.addEventListener('submit',event=>{event.preventDefault();const form=eve
 document.addEventListener('change',event=>{
  if(event.target.id!=='loan-amount-column'||!loanImport?.columns)return;
  const choice=event.target.value;
- loanImport.schedule=choice===''?null:loanImport.columns[Number(choice)]?.schedule;
- $('#loan-payment-preview').innerHTML=loanImport.schedule?loanPaymentPreview(loanImport.schedule):'';
+ const column=choice===''?null:loanImport.columns[Number(choice)];
+ loanImport.schedule=column?.schedule;
+ $('#loan-payment-preview').innerHTML=column?loanPaymentPreview(column.schedule,column.skipped):'';
  $('#loan-import-form button[type=submit]').disabled=!loanImport.schedule;
 });
 document.addEventListener('change',async e=>{if(e.target.id==='loan-file'){await previewLoanImport(e.target);return}if(e.target.id!=='import-file')return;const file=e.target.files[0];if(!file)return;if(file.size>5000000){toast('Файл слишком большой, максимум 5 МБ');return}try{const imported=JSON.parse(await file.text());if(!valid(imported))throw Error('Неверный формат резервной копии');confirmAction('Восстановить резервную копию?','Текущие записи будут заменены данными из файла. Рекомендуем сначала экспортировать текущий кошелёк.',()=>{if(change(()=>{state=imported}))success('Данные восстановлены')})}catch(err){toast(err.message)}e.target.value=''});

@@ -1,9 +1,10 @@
-import {parseLoanSchedule} from './core.js?v=15';
+import {parse,parseLoanSchedule} from './core.js?v=15';
 
 const datePattern = /^(?:\d{2}[./]\d{2}[./]\d{4}|\d{4}-\d{2}-\d{2})$/;
-const amountPattern = /^(?:\d{1,3}(?:[ .]\d{3})+|\d+)(?:[,.]\d{1,2})?(?:\s*(?:₽|руб\.?|RUB))?$/i;
+const amountPattern = /^(?:\d{1,3}(?:[ ,.]\d{3})+|\d+)(?:[,.]\d{1,2})?(?:\s*(?:₽|руб\.?|RUB))?$/i;
 const partialHeader = /основн(?:ой|ого)\s+долг|процент|комисси|principal|interest/i;
-const totalHeader = /(?:итого\s+к\s+оплате|полная\s+сумма\s+платежа|сумма\s+(?:ежемесячного\s+)?плат[её]жа|(?:ежемесячный|общий|аннуитетный|плановый)\s+плат[её]ж|payment\s+amount)/i;
+const isTotalHeading = text => totalHeader.test(text) && !partialHeader.test(text) && !/\s(?:в|на|по|из)$/i.test(text);
+const totalHeader = /(?:итого\s+к\s+оплате|общая\s+сумма\s+погашения|полная\s+сумма\s+платежа|сумма\s+(?:ежемесячного\s+)?плат[её]жа|(?:ежемесячный|общий|аннуитетный|плановый|регулярный)\s+плат[её]ж|payment\s+amount)/i;
 
 function toRows(items) {
   const lines = [];
@@ -31,7 +32,9 @@ function toRows(items) {
 
 function amountValue(text) {
   const raw = text.replace(/\s*(?:₽|руб\.?|RUB)$/i,'').replace(/\s/g,'');
-  return raw.includes(',') ? raw.replace(/\./g,'') : raw.replace(/\.(?=\d{3}(?:\.|$))/g,'');
+  const decimals = raw.match(/[,.](\d{1,2})$/);
+  const integer = decimals ? raw.slice(0,decimals.index) : raw;
+  return integer.replace(/[,.]/g,'') + (decimals ? '.'+decimals[1] : '');
 }
 
 function paymentRows(pages) {
@@ -41,20 +44,19 @@ function paymentRows(pages) {
     const rows = toRows(items);
     for (let i=0; i<rows.length; i++) {
       const cells = rows[i];
-      const next = rows[i+1] || [];
+      const below = rows.slice(i+1,i+4).flat();
       const header = cells.find((cell,index) => {
-        if (totalHeader.test(cell.text) && !partialHeader.test(cell.text)) return true;
-        const below = next.find(other => Math.abs(other.x-cell.x)<15);
+        if (isTotalHeading(cell.text)) return true;
         const adjacent = cells[index+1];
-        return (below && totalHeader.test(cell.text+' '+below.text) && !partialHeader.test(cell.text+' '+below.text)) ||
-          (adjacent && adjacent.x-cell.right<18 && totalHeader.test(cell.text+' '+adjacent.text) && !partialHeader.test(cell.text+' '+adjacent.text));
+        return below.some(other=>Math.abs(other.x-cell.x)<15&&isTotalHeading(cell.text+' '+other.text)) ||
+          (adjacent && adjacent.x-cell.right<18 && isTotalHeading(cell.text+' '+adjacent.text));
       });
       if (header) totalColumn = header;
       const dateIndex = cells.findIndex(cell => datePattern.test(cell.text));
       if (dateIndex < 0 || !cells.slice(0,dateIndex).every(cell => /^\d{1,4}$/.test(cell.text))) continue;
       const date = cells[dateIndex];
       const candidates = cells.slice(dateIndex+1).filter(cell => amountPattern.test(cell.text));
-      if (candidates.length) result.push({date:date.text.replaceAll('/','.'), origin:date.x, candidates, totalColumn});
+      if (candidates.length) result.push({date:date.text.replaceAll('/','.'), origin:date.x, ordinal:dateIndex?cells[dateIndex-1].text:null, candidates, totalColumn});
     }
   }
   return result;
@@ -69,16 +71,24 @@ function closestCell(cells, distance, limit) {
 }
 
 function readSchedule(rows, selectCell) {
-  const found = new Map();
+  const totals = new Map();
+  const seen = new Map();
   for (const row of rows) {
     const cell = selectCell(row);
     if (!cell) return null;
     const value = amountValue(cell.text);
-    const previous = found.get(row.date);
-    if (previous!==undefined && Number(previous.replace(',','.'))!==Number(value.replace(',','.'))) return null;
-    found.set(row.date,value);
+    const amount = Number(value)===0?0:parse(value);
+    if (amount===null) return null;
+    const identity = row.date+':'+(row.ordinal??'');
+    if (seen.has(identity)) {
+      if (seen.get(identity)!==amount) return null;
+      continue;
+    }
+    seen.set(identity,amount);
+    totals.set(row.date,(totals.get(row.date)||0)+amount);
   }
-  const lines = [...found].filter(([, amount])=>Number(amount.replace(',','.'))!==0);
+  const lines = [...totals].filter(([, amount])=>amount>0)
+    .map(([date,amount])=>[date,(amount/100).toFixed(2)]);
   if (!lines.length) return null;
   try {
     return parseLoanSchedule('Дата;Сумма\n'+lines.map(([date,amount])=>date+';'+amount).join('\n'));
