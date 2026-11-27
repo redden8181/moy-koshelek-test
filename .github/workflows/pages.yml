@@ -32,6 +32,8 @@ jobs:
           node --check dist/sw.js
       - name: Test financial calculations
         run: npm test
+      - name: Prepare PDF reader
+        run: bash scripts/prepare-pdf.sh
       - name: Configure Pages
         uses: actions/configure-pages@v5
       - name: Upload static app

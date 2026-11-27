@@ -97,8 +97,8 @@ function loans(){
  },new Map());
  return `${header('Долги')}${debtTabs()}<section class="loan-import">
  ${act('loan-import','Загрузить график из банка','primary')}
- <input id="loan-file" type="file" accept=".csv,.tsv,text/csv,text/tab-separated-values" hidden>
- <p class="help">CSV или TSV с колонками «Дата» и «Сумма». <a href="./loan-schedule.csv" download>Скачать шаблон</a></p></section>
+ <input id="loan-file" type="file" accept=".pdf,.csv,.tsv,application/pdf,text/csv,text/tab-separated-values" hidden>
+ <p class="help">PDF с текстовым графиком или CSV/TSV с колонками «Дата» и «Сумма». <a href="./loan-schedule.csv" download>Скачать шаблон</a></p></section>
  ${[...groups].map(([title,schedule])=>`<section class="panel loan-group"><h2>${esc(title)}</h2>
  <p>Осталось по графику · ${rub(schedule.filter(p=>!p.paid).reduce((sum,p)=>sum+p.amount,0))}</p>
  <div class="loan-schedule">${schedule.map(p=>p.paid?`<div class="loan-preview-row"><span>${formatDate(p.date,true)} · Оплачено</span><strong>${rub(p.amount)}</strong></div>`:preview(p)).join('')}</div></section>`).join('')||
@@ -107,11 +107,20 @@ function loans(){
 async function previewLoanImport(input){
  const file=input.files[0];if(!file)return;
  try{
-  if(file.size>500000)throw Error('Размер графика должен быть меньше 500 КБ');
+  const isPdf=/\.pdf$/i.test(file.name)||file.type==='application/pdf';
+  if(file.size>(isPdf?10_000_000:500_000))throw Error(isPdf?'PDF должен быть меньше 10 МБ':'Таблица должна быть меньше 500 КБ');
   const bytes=await file.arrayBuffer();
-  let text;
-  try{text=new TextDecoder('utf-8',{fatal:true}).decode(bytes)}catch{text=new TextDecoder('windows-1251').decode(bytes)}
-  const schedule=parseLoanSchedule(text);
+  let schedule;
+  if(isPdf){
+   toast('Читаю график из PDF…');
+   const {readPdfSchedule}=await import('./loan-pdf.js?v=16');
+   schedule=await readPdfSchedule(new Uint8Array(bytes));
+  }else{
+   let text;
+   try{text=new TextDecoder('utf-8',{fatal:true}).decode(bytes)}catch{text=new TextDecoder('windows-1251').decode(bytes)}
+   schedule=parseLoanSchedule(text);
+  }
+  if(!input.isConnected && route!=='loans')return;
   loanImport={schedule};
   open('Проверить график',`<form id="loan-import-form"><p class="help">${esc(file.name)} · платежей: ${schedule.length}</p>
   ${field('title','Название кредита','','text','maxlength="100" required')}
