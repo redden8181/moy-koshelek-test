@@ -254,3 +254,27 @@
   .wallet-home .home-debt-row { padding: 12px 14px; }
   .fab { background: #b5df39; color: #253419; border-color: #b5df39; }
 }
+
+.entry-amount-display {
+  width: 100%;
+  min-height: 78px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.entry-amount-value {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  font-size: clamp(32px, 11vw, 44px);
+  font-weight: 500;
+  letter-spacing: -1px;
+  text-align: center;
+}
+.entry-amount-value.is-empty { color: var(--muted); }
+button.entry-amount-display:active { background: var(--soft); }
+[data-theme="dark"] button.entry-amount-display:active { background: var(--wallet-surface); }
