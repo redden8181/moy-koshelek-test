@@ -1,5 +1,5 @@
-const CACHE='wallet-test-shell-v20';
-const ASSETS=['./','./index.html','./style.css?v=13','./mobile.css?v=19','./app.js?v=20','./core.js?v=15','./loan-schedule.csv','./loan-pdf.js?v=20','./manifest.webmanifest','./icon-glass-180.png','./icon-glass-192.png','./icon-glass-512.png'];
+const CACHE='wallet-test-shell-v21';
+const ASSETS=['./','./index.html','./style.css?v=13','./mobile.css?v=21','./app.js?v=21','./core.js?v=15','./loan-schedule.csv','./loan-pdf.js?v=20','./manifest.webmanifest','./icon-glass-180.png','./icon-glass-192.png','./icon-glass-512.png'];
 self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS)).then(()=>self.skipWaiting())));
 self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('wallet-test-shell-')&&k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
 self.addEventListener('fetch',e=>{

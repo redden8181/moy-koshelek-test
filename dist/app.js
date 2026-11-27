@@ -95,13 +95,18 @@ function loans(){
  const groups=payments.reduce((map,p)=>{
    if(!map.has(p.title))map.set(p.title,[]);map.get(p.title).push(p);return map;
  },new Map());
+ const credits=[...groups].map(([title,schedule])=>({
+  title,schedule,remaining:schedule.filter(p=>!p.paid).reduce((sum,p)=>sum+p.amount,0)
+ })).sort((a,b)=>a.remaining-b.remaining||a.title.localeCompare(b.title,'ru'));
  return `${header('Долги')}${debtTabs()}<section class="loan-import">
  ${act('loan-import','Загрузить график из банка','primary')}
  <input id="loan-file" type="file" accept=".pdf,.csv,.tsv,application/pdf,text/csv,text/tab-separated-values" hidden>
  <p class="help">PDF с текстовым графиком или CSV/TSV с колонками «Дата» и «Сумма». <a href="./loan-schedule.csv" download>Скачать шаблон</a></p></section>
- ${[...groups].map(([title,schedule])=>`<section class="panel loan-group"><h2>${esc(title)}</h2>
- <p>Осталось по графику · ${rub(schedule.filter(p=>!p.paid).reduce((sum,p)=>sum+p.amount,0))}</p>
- <div class="loan-schedule">${schedule.map(p=>p.paid?`<div class="loan-preview-row"><span>${formatDate(p.date,true)} · Оплачено</span><strong>${rub(p.amount)}</strong></div>`:preview(p)).join('')}</div></section>`).join('')||
+ ${credits.map(({title,schedule,remaining})=>`<details class="panel loan-group">
+ <summary class="loan-summary"><span class="loan-summary-title">${esc(title)}</span>
+ <span class="loan-summary-value"><strong>${rub(remaining)}</strong><small>Осталось по графику</small></span>
+ <span class="loan-summary-chevron" aria-hidden="true">⌄</span></summary>
+ <div class="loan-schedule">${schedule.map(p=>p.paid?`<div class="loan-preview-row"><span>${formatDate(p.date,true)} · Оплачено</span><strong>${rub(p.amount)}</strong></div>`:preview(p)).join('')}</div></details>`).join('')||
  '<div class="empty">Кредитов пока нет</div>'}`;
 }
 function loanPaymentPreview(schedule,skipped=0){

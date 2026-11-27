@@ -283,3 +283,26 @@ button.entry-amount-display:active { background: var(--soft); }
   #loan-import-form .form-buttons { position: static; }
   #loan-import-form [name="title"] { scroll-margin-block: 16px; }
 }
+
+.loan-group.panel { padding: 0; }
+.loan-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 18px;
+  min-height: 76px;
+  cursor: pointer;
+  list-style: none;
+}
+.loan-summary::-webkit-details-marker { display: none; }
+.loan-summary-title { min-width: 0; flex: 1; overflow-wrap: anywhere; font-size: 17px; font-weight: 600; }
+.loan-summary-value { display: grid; gap: 4px; max-width: 48%; text-align: right; overflow-wrap: anywhere; }
+.loan-summary-value strong { font-size: 18px; font-variant-numeric: tabular-nums; }
+.loan-summary-value small { font-size: 11px; color: var(--muted); }
+.loan-summary-chevron { color: var(--muted); flex-shrink: 0; }
+.loan-group[open] .loan-summary-chevron { transform: rotate(180deg); }
+.loan-group[open] .loan-summary { border-bottom: 1px solid var(--wallet-border); }
+.loan-group .loan-schedule { margin: 0 18px; }
+#loan-import-form [name="title"]:focus { outline: none; box-shadow: none; border-color: var(--green); }
+#sheet-title[tabindex="-1"]:focus { outline: none; box-shadow: none; }
+.loan-summary:focus-visible { outline: 2px solid var(--green); outline-offset: 3px; border-radius: 14px; }
