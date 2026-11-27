@@ -170,3 +170,87 @@
   .debt-menu-summary>span, .debt-menu-summary p { color: #526652; }
   #toast { bottom: calc(150px + env(safe-area-inset-bottom)); font-size: 14px; line-height: 1.4; width: max-content; }
 }
+
+/* The overview and credit schedule use the same surfaces on phone and desktop. */
+:root {
+  --wallet-surface: #fff;
+  --wallet-balance: #fbfcf4;
+  --wallet-border: #dde4d9;
+  --wallet-income-bg: #def1e7;
+  --wallet-expense-bg: #f7e9e2;
+  --wallet-profit: #17684f;
+  --wallet-spend: #9c4537;
+}
+.wallet-home { display: grid; gap: 20px; max-width: 760px; }
+.wallet-home .section-title { margin: 0 0 8px; }
+.wallet-balance.balance-card { background: var(--wallet-balance); border: 1px solid var(--wallet-border); border-radius: 24px; padding: 22px 20px 16px; }
+.wallet-balance.balance-card::after { display: none; }
+.wallet-balance .small-label::before { content: ''; display: inline-block; vertical-align: 2px; width: 7px; height: 7px; border-radius: 50%; margin-right: 8px; background: #91b829; }
+.wallet-balance .balance-number { font-weight: 690; margin: 7px 0 16px; }
+.wallet-totals { margin: 0; gap: 10px; }
+.wallet-totals .total { background: var(--wallet-income-bg); color: var(--wallet-profit); border: 0; border-radius: 13px; padding: 10px 12px; }
+.wallet-totals .total.expense { background: var(--wallet-expense-bg); color: var(--wallet-spend); }
+.wallet-totals .total-label { color: inherit; }
+.wallet-totals .total-value { font-size: clamp(16px,5vw,24px); margin-top: 5px; font-variant-numeric: tabular-nums; }
+.balance-chart { display: block; width: 100%; height: 62px; color: var(--wallet-profit); margin-top: 10px; }
+.balance-facts { margin: 3px 0 0; padding-top: 8px; border-top: 1px solid var(--wallet-border); }
+.balance-facts div,.loan-preview-row { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; }
+.balance-facts dt,.balance-facts dd { margin: 0; padding: 4px 0; font-size: 13px; }
+.balance-facts dd { text-align: right; overflow-wrap: anywhere; font-weight: 650; }
+.balance-facts .positive { color: var(--wallet-profit); }
+.balance-facts .negative { color: var(--wallet-spend); }
+.wallet-home .history { margin: 0; }
+.wallet-home .home-debt-list,.wallet-upcoming .preview-items,.loan-schedule { display: grid; gap: 0; border-radius: 16px; background: var(--wallet-surface); }
+.wallet-home .home-debt-row,.payment-row.plan-preview { background: transparent; color: var(--ink); margin: 0; box-shadow: none; border: 0; border-radius: 0; }
+.wallet-home .home-debt-row + .home-debt-row,.payment-row.plan-preview + .payment-row,.loan-schedule > * + * { border-top: 1px solid var(--wallet-border); }
+.wallet-home .home-debt-row { justify-content: space-between; }
+.payment-row.plan-preview { display: grid; width: 100%; grid-template-columns: minmax(0,1fr) minmax(78px,40%); align-items: center; gap: 12px; padding: 12px 14px; text-align: left; }
+.payment-description,.payment-value { min-width: 0; display: grid; gap: 5px; overflow-wrap: anywhere; }
+.payment-value { text-align: right; justify-items: end; }
+.payment-description small { color: var(--muted); font-size: 12px; }
+.payment-status { border-radius: 7px; font-size: 11px; font-weight: 650; padding: 3px 6px; background: hsl(var(--deadline-hue) 52% 91%); color: hsl(var(--deadline-hue) 69% 25%); }
+.debt-tabs { max-width: 400px; margin-bottom: 18px; }
+.loan-import { margin-bottom: 22px; }
+.loan-import a { text-decoration: underline; }
+.loan-group h2 { margin: 0; overflow-wrap: anywhere; }
+.loan-group .payment-row { padding-inline: 0; }
+.loan-preview-row { padding: 12px 8px; font-size: 14px; }
+.loan-preview-row strong { text-align: right; overflow-wrap: anywhere; }
+#loan-import-form .loan-schedule { max-height: 45vh; overflow-y: auto; }
+.wallet-home .history-more { margin-bottom: 6px; }
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #181c18;
+  --ink: #edf2eb;
+  --muted: #b0beb0;
+  --green: #aedb91;
+  --line: #394538;
+  --wallet-surface: #222a23;
+  --wallet-balance: #242d23;
+  --wallet-border: #3a4938;
+  --wallet-income-bg: #284336;
+  --wallet-expense-bg: #472f2b;
+  --wallet-profit: #a4e1bc;
+  --wallet-spend: #ffb49e;
+}
+[data-theme="dark"] :is(body,dialog,.form-buttons) { background: var(--bg); color: var(--ink); }
+[data-theme="dark"] :is(.panel,.month-card,.entry-row,.report-stats>div,.history-list,.category-choice,.keypad button,.report-search,.empty) { background: var(--wallet-surface); color: var(--ink); border-color: var(--wallet-border); }
+[data-theme="dark"] :is(.field input,.field select,.field textarea) { background: var(--wallet-surface); color: var(--ink); border-color: var(--wallet-border); }
+[data-theme="dark"] :is(.small-label,.entry-info small,.help,.month-count,.month-footer span,.report-stats span,.operation-date,.history-foot,.field) { color: var(--muted); }
+[data-theme="dark"] :is(.secondary,.segment,.history-controls,.report-controls,.close,.install-note,.debt-menu-summary) { background: var(--wallet-surface); color: var(--ink); }
+[data-theme="dark"] :is(.segment button.active,.chip.active,.category-choice.active) { background: #354336; color: var(--ink); }
+[data-theme="dark"] :is(.text-button,.back,.loan-import a) { color: #aedb91; }
+[data-theme="dark"] :is(.positive,.entry-income .entry-right strong,.stat-income strong) { color: var(--wallet-profit); }
+[data-theme="dark"] :is(.negative,.entry-expense .entry-right strong,.stat-expense strong) { color: var(--wallet-spend); }
+[data-theme="dark"] .payment-status { background: hsl(var(--deadline-hue) 32% 21%); color: hsl(var(--deadline-hue) 80% 79%); }
+[data-theme="dark"] #mobile-nav { background: #1d241eef; border-color: var(--wallet-border); }
+[data-theme="dark"] #mobile-nav .nav-item { color: var(--muted); }
+[data-theme="dark"] #mobile-nav .nav-item.active { background: #354336; color: #c1eaa8; }
+@media (max-width: 650px) {
+  .wallet-home { gap: 17px; }
+  .wallet-balance.balance-card { padding: 19px 16px 13px; }
+  .wallet-balance .balance-number { font-size: clamp(34px,11vw,45px); }
+  .wallet-home .home-debt-row { padding: 12px 14px; }
+  .fab { background: #b5df39; color: #253419; border-color: #b5df39; }
+}

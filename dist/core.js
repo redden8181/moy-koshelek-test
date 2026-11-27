@@ -10,7 +10,7 @@ export const planned=s=>s.plans.filter(p=>!p.paid).reduce((a,p)=>a+p.amount,0);
 export const total=(s,kind)=>s.entries.filter(e=>e.kind===kind).reduce((a,e)=>a+e.amount,0);
 export const daysUntil=date=>Math.round((Date.parse(date+'T12:00:00')-Date.parse(day()+'T12:00:00'))/86400000);
 export const urgency=date=>daysUntil(date)<=2?'red':daysUntil(date)<=5?'orange':'green';
-export const isReminder=p=>!p.paid&&(!p.monthly||daysUntil(p.date)<=10);
+export const isReminder=p=>!p.paid&&(!(p.monthly||p.loan)||daysUntil(p.date)<=10);
 export function nextMonth(date,anchor){const [y,m]=date.split('-').map(Number);const last=new Date(y,m+1,0).getDate();return localDate(new Date(y,m,Math.min(anchor,last)))}
 export function demo(){const debtId=uid();const entry=(amount,kind,category,note,offset,extra={})=>({id:uid(),amount,kind,category,note,date:day(offset),created:Date.now()+offset,...extra});return {version:1,opening:300000,categories:[['🥑','Продукты',false],['☕','Кофе',false],['🚙','Машина',false],['🏡','Дом',false],['💼','Подработка',true],['💰','Зарплата',true]].map(([emoji,name,income])=>({id:uid(),emoji,name,income})),entries:[entry(500000,'income','💼 Подработка','Небольшой проект',-4),entry(54300,'expense','🥑 Продукты','Покупки домой',-3),entry(100000,'lent','🤝 Алексей','До конца месяца',-2,{debtId}),entry(40000,'returned','🤝 Алексей','Первый возврат',-1,{debtId}),entry(22000,'expense','☕ Кофе','По дороге домой',0)],debts:[{id:debtId,person:'Алексей',lent:true}],plans:[{id:uid(),title:'Оплата интернета',amount:70000,date:day(7),monthly:true,anchor:Number(day(7).slice(-2)),category:'🏡 Дом',note:'Домашний интернет',paid:false},{id:uid(),title:'Новые колёса',amount:300000,date:day(25),monthly:false,anchor:Number(day(25).slice(-2)),category:'🚙 Машина',note:'Подготовиться к сезону',paid:false}]}}
 export function putEntry(s,entry){if(!Number.isSafeInteger(entry.amount)||entry.amount<=0)throw Error('Проверьте сумму');const next=s.entries.filter(e=>e.id!==entry.id).concat(entry);if(entry.debtId){const test={...s,entries:next};if(remaining(test,entry.debtId)<0)throw Error('Возврат превышает сумму долга')}s.entries=next}
@@ -72,4 +72,85 @@ export function editDebt(s,id,values){
 export function deleteDebt(s,id){
  s.entries=s.entries.filter(e=>e.debtId!==id);
  s.debts=s.debts.filter(d=>d.id!==id);
+}
+
+export function parseLoanSchedule(text) {
+  const lines = text.replace(/^\uFEFF/, '').trim().split(/\r?\n/).filter(line => line.trim());
+  if (lines.length < 2 || lines.length > 601) throw Error('В графике должно быть от 1 до 600 платежей');
+  const separator = ['\t', ';', ','].find(value => lines[0].includes(value));
+  if (!separator) throw Error('Загрузите CSV или TSV с колонками «Дата» и «Сумма»');
+  function cells(line) {
+    const result = [''];
+    let quoted = false;
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      if (char === '"' && quoted && line[i+1] === '"') {
+        result[result.length-1] += '"';
+        i++;
+      } else if (char === '"') {
+        quoted = !quoted;
+      } else if (char === separator && !quoted) {
+        result.push('');
+      } else {
+        result[result.length-1] += char;
+      }
+    }
+    if (quoted) throw Error('В файле есть незакрытая кавычка');
+    return result.map(value => value.trim());
+  }
+  const headers = cells(lines[0]).map(value => value.toLowerCase());
+  const dateColumn = headers.findIndex(value => ['дата','дата платежа','date'].includes(value));
+  const amountColumn = headers.findIndex(value => ['сумма','сумма платежа','платёж','платеж','amount'].includes(value));
+  if (dateColumn < 0 || amountColumn < 0) throw Error('Нужны колонки «Дата» и «Сумма»');
+  const dates = new Set();
+  return lines.slice(1).map((line, index) => {
+    const row = cells(line);
+    const input = row[dateColumn] || '';
+    const match = input.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+    const date = match ? [match[3], match[2], match[1]].join('-') : input;
+    const timestamp = new Date(date+'T12:00:00Z');
+    const amount = parse((row[amountColumn]||'').replace(/\s*(?:₽|руб\.?|RUB)$/i,''));
+    if (row.length !== headers.length || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(+timestamp) ||
+        timestamp.toISOString().slice(0,10) !== date || amount === null) {
+      throw Error('Проверьте дату и сумму в строке '+(index+2));
+    }
+    if (dates.has(date)) throw Error('Дата '+date+' встречается дважды');
+    dates.add(date);
+    return {date, amount};
+  }).sort((a,b) => a.date.localeCompare(b.date));
+}
+
+export function addLoanSchedule(state, name, schedule) {
+  const title = name.trim();
+  if (!title || title.length > 100) throw Error('Укажите название кредита');
+  const existing = new Map(state.plans.filter(p => p.loan && p.title.toLowerCase() === title.toLowerCase())
+    .map(p => [p.loanDate || p.date, p]));
+  const additions = [];
+  for (const {date, amount} of schedule) {
+    const old = existing.get(date);
+    if (old) {
+      if ((old.loanAmount ?? old.amount) !== amount) throw Error('На '+date+' уже есть платёж с другой суммой. Проверьте график.');
+      continue;
+    }
+    additions.push({id:uid(),title,amount,date,anchor:Number(date.slice(-2)),category:'💳 Кредит',
+      note:'Платёж по графику',monthly:false,paid:false,loan:true,loanDate:date,loanAmount:amount});
+  }
+  state.plans.push(...additions);
+  return additions.length;
+}
+
+export function monthBalancePoints(state, month, end = day()) {
+  const report = monthlyReport(state, month);
+  const changes = new Map();
+  for (const entry of report.entries) {
+    changes.set(entry.date, (changes.get(entry.date)||0) + sign(entry.kind)*entry.amount);
+  }
+  const last = Number(end.slice(-2));
+  let amount = report.opening;
+  const points = [amount];
+  for (let i = 1; i <= last; i++) {
+    amount += changes.get(month+'-'+String(i).padStart(2,'0')) || 0;
+    points.push(amount);
+  }
+  return points;
 }
