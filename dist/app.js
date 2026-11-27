@@ -117,7 +117,7 @@ async function previewLoanImport(input){
   let result;
   if(isPdf){
    toast('Читаю график из PDF…');
-   const {readPdfSchedule}=await import('./loan-pdf.js?v=19');
+   const {readPdfSchedule}=await import('./loan-pdf.js?v=20');
    result=await readPdfSchedule(new Uint8Array(bytes));
   }else{
    let text;
@@ -130,7 +130,7 @@ async function previewLoanImport(input){
    const upcoming=payments=>payments.filter(p=>p.date>=cutoff);
    if(result.schedule){
     const schedule=upcoming(result.schedule);
-    result={schedule,skipped:result.schedule.length-schedule.length};
+    result={...result,schedule,skipped:result.schedule.length-schedule.length};
    }else{
     result={columns:result.columns.map(column=>{
      const schedule=upcoming(column.schedule);
@@ -140,15 +140,15 @@ async function previewLoanImport(input){
    if(!result.schedule?.length&&!result.columns?.length)throw Error('В PDF нет платежей на сегодня или более поздние даты.');
   }
   loanImport=result;
-  const {schedule,columns,skipped}=result;
+  const {schedule,columns,skipped,label}=result;
   const picker=columns?`<p class="help">В строке PDF несколько сумм. Выберите колонку с полным платежом по графику банка.</p>
    <label class="field">Колонка платежа<select id="loan-amount-column" required>
-    <option value="">Выберите колонку</option>
-    ${columns.map(({number,schedule},i)=>`<option value="${i}">Колонка ${number} · ${rub(schedule[0].amount)}</option>`).join('')}
+    <option value="">Выберите по названию</option>
+    ${columns.map(({number,schedule,label},i)=>`<option value="${i}">${esc(label||'Без заголовка ('+number+')')} · ${rub(schedule[0].amount)}</option>`).join('')}
    </select></label>`:'';
   open('Проверить график',`<form id="loan-import-form">
    ${field('title','Название кредита','','text','maxlength="100" required autocomplete="off" enterkeyhint="done"')}
-   <p class="help">${esc(file.name)}</p>${picker}
+   <p class="help">${esc(file.name)}</p>${label?`<p class="help">Суммы из колонки «${esc(label)}».</p>`:''}${picker}
    <div id="loan-payment-preview">${schedule?loanPaymentPreview(schedule,skipped):''}</div>
    ${footer('Добавить платежи')}</form>`,{focusHeading:true});
   $('#loan-import-form button[type=submit]').disabled=!schedule;

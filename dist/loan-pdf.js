@@ -37,26 +37,62 @@ function amountValue(text) {
   return integer.replace(/[,.]/g,'') + (decimals ? '.'+decimals[1] : '');
 }
 
+function columnHeadings(rows, firstPayment, date, candidates) {
+  const preceding = rows.slice(Math.max(0,firstPayment-9),firstPayment);
+  const dateHeading = preceding.findLastIndex(row=>row.some(cell=>
+    /^(?:дата(?:\s+плат[её]жа)?|date)$/i.test(cell.text)&&Math.abs(midpoint(cell)-midpoint(date))<28));
+  const header = dateHeading>=0
+    ? preceding.slice(Math.max(0,dateHeading-2),dateHeading+5)
+    : preceding.slice(-4);
+  const labels = new Map();
+  for (const row of header) {
+    for (const fragment of row) {
+      if (!/\p{L}{2}/u.test(fragment.text)||/\d|договор|за[её]мщик|сумма кредита|страница/i.test(fragment.text)) continue;
+      const column = closestCell(candidates,cell=>Math.abs(midpoint(cell)-midpoint(fragment)),28);
+      if (!column) continue;
+      const words=labels.get(column)||[];
+      if(!words.includes(fragment.text))words.push(fragment.text);
+      labels.set(column,words);
+    }
+  }
+  if(dateHeading<0&&labels.size<2)return [];
+  return [...labels].map(([cell,words])=>({...cell,label:words.join(' ').replace(/[*†‡]+$/,'').trim()}));
+}
+
+function headingForCell(row,cell){
+ return closestCell(row.headings,heading=>Math.abs(midpoint(heading)-midpoint(cell)),30)?.label;
+}
+
 function paymentRows(pages) {
   let totalColumn;
+  let headings=[];
   const result = [];
   for (const items of pages) {
     const rows = toRows(items);
+    let foundPageHeading=false;
     for (let i=0; i<rows.length; i++) {
       const cells = rows[i];
       const below = rows.slice(i+1,i+4).flat();
-      const header = cells.find((cell,index) => {
-        if (isTotalHeading(cell.text)) return true;
-        const adjacent = cells[index+1];
-        return below.some(other=>Math.abs(other.x-cell.x)<15&&isTotalHeading(cell.text+' '+other.text)) ||
-          (adjacent && adjacent.x-cell.right<18 && isTotalHeading(cell.text+' '+adjacent.text));
-      });
-      if (header) totalColumn = header;
+      for(const [index,cell] of cells.entries()){
+        const adjacent=cells[index+1];
+        const fragments=[cell.text,...below.filter(other=>Math.abs(other.x-cell.x)<15)
+          .map(other=>cell.text+' '+other.text)];
+        if(adjacent&&adjacent.x-cell.right<18)fragments.push(cell.text+' '+adjacent.text);
+        const label=fragments.find(isTotalHeading);
+        if(label){totalColumn={...cell,label:label.replace(/[*†‡]+$/,'').trim()};break;}
+      }
       const dateIndex = cells.findIndex(cell => datePattern.test(cell.text));
       if (dateIndex < 0 || !cells.slice(0,dateIndex).every(cell => /^\d{1,4}$/.test(cell.text))) continue;
       const date = cells[dateIndex];
       const candidates = cells.slice(dateIndex+1).filter(cell => amountPattern.test(cell.text));
-      if (candidates.length) result.push({date:date.text.replaceAll('/','.'), origin:date.x, ordinal:dateIndex?cells[dateIndex-1].text:null, candidates, totalColumn});
+      if (!candidates.length) continue;
+      if (!foundPageHeading){
+        const names=columnHeadings(rows,i,date,candidates);
+        if(names.length)headings=names;
+        foundPageHeading=true;
+      }
+      result.push({date:date.text.replaceAll('/','.'), origin:date.x, ordinal:dateIndex?cells[dateIndex-1].text:null,
+        candidates,totalColumn,headings});
     }
   }
   return result;
@@ -103,12 +139,15 @@ export function scheduleFromPdfPages(pages) {
   const template = rows.reduce((first,row)=>row.candidates.length>first.candidates.length?row:first);
   if (template.candidates.length===1) {
     const schedule = readSchedule(rows,row=>row.candidates[0]);
-    if (schedule) return {schedule};
+    if (schedule) return {schedule,label:headingForCell(template,template.candidates[0])};
   } else {
     const schedule = readSchedule(rows,row=>row.totalColumn
       ? closestCell(row.candidates,cell=>Math.abs(midpoint(cell)-midpoint(row.totalColumn)),32)
       : null);
-    if (schedule) return {schedule};
+    if (schedule) {
+      const row=rows.find(p=>p.totalColumn);
+      return {schedule,label:row?.totalColumn.label};
+    }
 
     const columns = template.candidates.flatMap((column,index)=>{
       const left = column.x-template.origin;
@@ -117,7 +156,8 @@ export function scheduleFromPdfPages(pages) {
         Math.abs(cell.x-row.origin-left),
         Math.abs(cell.right-row.origin-right)
       ),16));
-      return schedule ? [{number:index+1,schedule}] : [];
+      const label=headingForCell(template,column);
+      return schedule ? [{number:index+1,schedule,...(label?{label}:{})}] : [];
     });
     if (columns.length) return {columns};
   }

@@ -49,3 +49,13 @@ test('PDF import finds the total across staggered header lines and combines dist
   ];
   assert.deepEqual(scheduleFromPdfPages([page,page]).schedule,[{date:'2026-12-07',amount:3991940}]);
 });
+
+test('PDF import labels manual choices with multiline headings from the bank', () => {
+  const page = [
+    cell('Дата',52,112,25),cell('Платеж по',163,112,48),cell('Начисленные',255,112,62),
+    cell('платежа',50,100,36),cell('кредиту',170,100,37),cell('проценты',265,100,44),
+    cell('07.12.2026',45,72,65),cell('1 000,00',166,72),cell('450,00',266,72),
+  ];
+  const result=scheduleFromPdfPages([page]);
+  assert.deepEqual(result.columns.map(c=>c.label),['Платеж по кредиту','Начисленные проценты']);
+});
