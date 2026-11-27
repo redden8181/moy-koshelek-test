@@ -104,28 +104,39 @@ function loans(){
  <div class="loan-schedule">${schedule.map(p=>p.paid?`<div class="loan-preview-row"><span>${formatDate(p.date,true)} · Оплачено</span><strong>${rub(p.amount)}</strong></div>`:preview(p)).join('')}</div></section>`).join('')||
  '<div class="empty">Кредитов пока нет</div>'}`;
 }
+function loanPaymentPreview(schedule){
+ return `<p class="help">Платежей: ${schedule.length}. Сверьте даты и суммы с графиком банка.</p>
+ <div class="loan-schedule">${schedule.map(p=>`<div class="loan-preview-row"><time datetime="${p.date}">${formatDate(p.date,true)}</time><strong>${rub(p.amount)}</strong></div>`).join('')}</div>`;
+}
 async function previewLoanImport(input){
  const file=input.files[0];if(!file)return;
  try{
   const isPdf=/\.pdf$/i.test(file.name)||file.type==='application/pdf';
   if(file.size>(isPdf?10_000_000:500_000))throw Error(isPdf?'PDF должен быть меньше 10 МБ':'Таблица должна быть меньше 500 КБ');
   const bytes=await file.arrayBuffer();
-  let schedule;
+  let result;
   if(isPdf){
    toast('Читаю график из PDF…');
-   const {readPdfSchedule}=await import('./loan-pdf.js?v=16');
-   schedule=await readPdfSchedule(new Uint8Array(bytes));
+   const {readPdfSchedule}=await import('./loan-pdf.js?v=18');
+   result=await readPdfSchedule(new Uint8Array(bytes));
   }else{
    let text;
    try{text=new TextDecoder('utf-8',{fatal:true}).decode(bytes)}catch{text=new TextDecoder('windows-1251').decode(bytes)}
-   schedule=parseLoanSchedule(text);
+   result={schedule:parseLoanSchedule(text)};
   }
   if(!input.isConnected && route!=='loans')return;
-  loanImport={schedule};
-  open('Проверить график',`<form id="loan-import-form"><p class="help">${esc(file.name)} · платежей: ${schedule.length}</p>
-  ${field('title','Название кредита','','text','maxlength="100" required')}
-  <div class="loan-schedule">${schedule.map(p=>`<div class="loan-preview-row"><time datetime="${p.date}">${formatDate(p.date,true)}</time><strong>${rub(p.amount)}</strong></div>`).join('')}</div>
-  ${footer('Добавить платежи')}</form>`);
+  loanImport=result;
+  const {schedule,columns}=result;
+  const picker=columns?`<p class="help">В строке PDF несколько сумм. Выберите колонку с полным платежом по графику банка.</p>
+   <label class="field">Колонка платежа<select id="loan-amount-column" required>
+    <option value="">Выберите колонку</option>
+    ${columns.map(({number,schedule},i)=>`<option value="${i}">Колонка ${number} · ${rub(schedule[0].amount)}</option>`).join('')}
+   </select></label>`:'';
+  open('Проверить график',`<form id="loan-import-form"><p class="help">${esc(file.name)}</p>${picker}
+   ${field('title','Название кредита','','text','maxlength="100" required')}
+   <div id="loan-payment-preview">${schedule?loanPaymentPreview(schedule):''}</div>
+   ${footer('Добавить платежи')}</form>`);
+  $('#loan-import-form button[type=submit]').disabled=!schedule;
  }catch(error){toast(error.message)}
  input.value='';
 }
@@ -225,7 +236,7 @@ document.addEventListener('submit',event=>{event.preventDefault();const form=eve
  if(form.id==='repay-form'){const d=state.debts.find(d=>d.id===form.dataset.id);if(amount>remaining(state,d.id)){showError('Нельзя вернуть больше остатка долга');return}if(change(()=>putEntry(state,{id:uid(),amount,kind:d.lent?'returned':'repaid',date:v('date'),category:'🤝 '+d.person,note:v('note')||'Возврат долга',debtId:d.id,created:Date.now()})))success('Возврат сохранён');return}
  if(form.id==='plan-form'){if(!v('title'))return;if(change(()=>{const id=form.dataset.id||uid(),old=state.plans.find(p=>p.id===id),p={...old,id,title:v('title'),amount,date:v('date'),anchor:Number(v('date').slice(-2)),category:v('category')||'📅 Платежи',note:v('note'),monthly:fd.has('monthly'),paid:old?.paid||false};state.plans=state.plans.filter(p=>p.id!==id).concat(p)}))success('План сохранён');return}
  if(form.id==='loan-import-form'){
-  if(!loanImport)return;
+  if(!loanImport?.schedule)return;
   let count;
   if(change(()=>{count=addLoanSchedule(state,v('title'),loanImport.schedule)})){
    loanImport=null;
@@ -236,6 +247,13 @@ document.addEventListener('submit',event=>{event.preventDefault();const form=eve
  if(form.id==='pay-form'){if(change(()=>payPlan(state,form.dataset.id,amount)))success('Платёж записан');return}
  if(form.id==='category-form'){if(!v('name')||!v('emoji'))return;const segmented=typeof Intl.Segmenter==='function'?[...new Intl.Segmenter('ru',{granularity:'grapheme'}).segment(v('emoji'))][0].segment:emoji(v('emoji'));if(change(()=>{const id=form.dataset.id||uid();state.categories=state.categories.filter(c=>c.id!==id).concat({id,name:v('name'),emoji:segmented,income:form.dataset.income==='true'})}))success('Категория сохранена');return}
  if(form.id==='opening-form'){const value=v('amount')==='0'?0:amount;if(value===null){showError('Укажите ноль или положительную сумму');return}if(change(()=>{state.opening=value}))success('Начальный баланс сохранён')}
+});
+document.addEventListener('change',event=>{
+ if(event.target.id!=='loan-amount-column'||!loanImport?.columns)return;
+ const choice=event.target.value;
+ loanImport.schedule=choice===''?null:loanImport.columns[Number(choice)]?.schedule;
+ $('#loan-payment-preview').innerHTML=loanImport.schedule?loanPaymentPreview(loanImport.schedule):'';
+ $('#loan-import-form button[type=submit]').disabled=!loanImport.schedule;
 });
 document.addEventListener('change',async e=>{if(e.target.id==='loan-file'){await previewLoanImport(e.target);return}if(e.target.id!=='import-file')return;const file=e.target.files[0];if(!file)return;if(file.size>5000000){toast('Файл слишком большой, максимум 5 МБ');return}try{const imported=JSON.parse(await file.text());if(!valid(imported))throw Error('Неверный формат резервной копии');confirmAction('Восстановить резервную копию?','Текущие записи будут заменены данными из файла. Рекомендуем сначала экспортировать текущий кошелёк.',()=>{if(change(()=>{state=imported}))success('Данные восстановлены')})}catch(err){toast(err.message)}e.target.value=''});
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!modal.open&&document.activeElement?.id!=='report-search')render()});

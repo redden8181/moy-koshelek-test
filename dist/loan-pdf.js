@@ -34,9 +34,9 @@ function amountValue(text) {
   return raw.includes(',') ? raw.replace(/\./g,'') : raw.replace(/\.(?=\d{3}(?:\.|$))/g,'');
 }
 
-export function scheduleFromPdfPages(pages) {
+function paymentRows(pages) {
   let totalColumn;
-  const found = new Map();
+  const result = [];
   for (const items of pages) {
     const rows = toRows(items);
     for (let i=0; i<rows.length; i++) {
@@ -49,30 +49,69 @@ export function scheduleFromPdfPages(pages) {
         return (below && totalHeader.test(cell.text+' '+below.text) && !partialHeader.test(cell.text+' '+below.text)) ||
           (adjacent && adjacent.x-cell.right<18 && totalHeader.test(cell.text+' '+adjacent.text) && !partialHeader.test(cell.text+' '+adjacent.text));
       });
-      if (header) totalColumn = {left:header.x, right:header.right};
-      const index = cells.findIndex(cell => datePattern.test(cell.text));
-      if (index < 0 || !cells.slice(0,index).every(cell => /^\d{1,4}$/.test(cell.text))) continue;
-      const candidates = cells.slice(index+1).filter(cell => amountPattern.test(cell.text));
-      if (!candidates.length) continue;
-      let amount = candidates[0];
-      if (candidates.length > 1) {
-        if (!totalColumn) throw Error('В PDF несколько сумм на дату, а колонка платежа не распознана. Используйте CSV.');
-        const midpoint = cell => (cell.x + cell.right)/2;
-        const distance = cell => Math.abs(midpoint(cell)-((totalColumn.left+totalColumn.right)/2));
-        candidates.sort((a,b)=>distance(a)-distance(b));
-        if (distance(candidates[1])-distance(candidates[0])<8 || distance(candidates[0])>50) {
-          throw Error('Не удалось однозначно определить сумму платежа в PDF. Используйте CSV.');
-        }
-        amount = candidates[0];
-      }
-      const date = cells[index].text.replaceAll('/','.');
-      const value = amountValue(amount.text);
-      if (found.has(date) && found.get(date)!==value) throw Error('В PDF найдены разные суммы на одну дату');
-      found.set(date,value);
+      if (header) totalColumn = header;
+      const dateIndex = cells.findIndex(cell => datePattern.test(cell.text));
+      if (dateIndex < 0 || !cells.slice(0,dateIndex).every(cell => /^\d{1,4}$/.test(cell.text))) continue;
+      const date = cells[dateIndex];
+      const candidates = cells.slice(dateIndex+1).filter(cell => amountPattern.test(cell.text));
+      if (candidates.length) result.push({date:date.text.replaceAll('/','.'), origin:date.x, candidates, totalColumn});
     }
   }
-  if (!found.size) throw Error('В PDF не найден текстовый график платежей. Сканы и фото не распознаются.');
-  return parseLoanSchedule('Дата;Сумма\n'+[...found].map(([date,amount])=>date+';'+amount).join('\n'));
+  return result;
+}
+
+const midpoint = cell => (cell.x + cell.right)/2;
+function closestCell(cells, distance, limit) {
+  const ranked = cells.map(cell => ({cell, distance:distance(cell)})).sort((a,b) => a.distance-b.distance);
+  if (!ranked.length || ranked[0].distance>limit ||
+      (ranked[1] && ranked[1].distance-ranked[0].distance<8)) return null;
+  return ranked[0].cell;
+}
+
+function readSchedule(rows, selectCell) {
+  const found = new Map();
+  for (const row of rows) {
+    const cell = selectCell(row);
+    if (!cell) return null;
+    const value = amountValue(cell.text);
+    const previous = found.get(row.date);
+    if (previous!==undefined && Number(previous.replace(',','.'))!==Number(value.replace(',','.'))) return null;
+    found.set(row.date,value);
+  }
+  const lines = [...found].filter(([, amount])=>Number(amount.replace(',','.'))!==0);
+  if (!lines.length) return null;
+  try {
+    return parseLoanSchedule('Дата;Сумма\n'+lines.map(([date,amount])=>date+';'+amount).join('\n'));
+  } catch {
+    return null;
+  }
+}
+
+export function scheduleFromPdfPages(pages) {
+  const rows = paymentRows(pages);
+  if (!rows.length) throw Error('В PDF не найден текстовый график платежей. Сканы и фото не распознаются.');
+  const template = rows.reduce((first,row)=>row.candidates.length>first.candidates.length?row:first);
+  if (template.candidates.length===1) {
+    const schedule = readSchedule(rows,row=>row.candidates[0]);
+    if (schedule) return {schedule};
+  } else {
+    const schedule = readSchedule(rows,row=>row.totalColumn
+      ? closestCell(row.candidates,cell=>Math.abs(midpoint(cell)-midpoint(row.totalColumn)),32)
+      : null);
+    if (schedule) return {schedule};
+
+    const columns = template.candidates.flatMap((column,index)=>{
+      const left = column.x-template.origin;
+      const right = column.right-template.origin;
+      const schedule = readSchedule(rows,row=>closestCell(row.candidates,cell=>Math.min(
+        Math.abs(cell.x-row.origin-left),
+        Math.abs(cell.right-row.origin-right)
+      ),16));
+      return schedule ? [{number:index+1,schedule}] : [];
+    });
+    if (columns.length) return {columns};
+  }
+  throw Error('Не удалось собрать полный график из PDF. Проверьте, что в файле есть таблица с датами и суммами.');
 }
 
 export async function readPdfSchedule(bytes) {
